@@ -1,0 +1,33 @@
+# ── Raw sensor data (too large for GitHub, 150-220 MB each) ──
+data/*.csv
+data/*.xlsx
+
+# ── Trained models ──
+**/*.pkl
+**/*.pt
+**/*.joblib
+
+# ── Generated plots and figures ──
+plots/
+**/*.png
+**/*.jpg
+**/*.svg
+
+# ── Jupyter artefacts ──
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# ── Python cache ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── OS files ──
+.DS_Store
+Thumbs.db
+
+# ── IDE ──
+.vscode/
+.idea/
+settings.local.json

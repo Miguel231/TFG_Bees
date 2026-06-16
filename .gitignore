@@ -12,6 +12,7 @@ plots/
 **/*.png
 **/*.jpg
 **/*.svg
+!docs/images/*.png
 
 # ── Jupyter artefacts ──
 .ipynb_checkpoints/

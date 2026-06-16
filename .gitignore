@@ -7,6 +7,9 @@ data/*.xlsx
 **/*.pt
 **/*.joblib
 
+# ── API model export staging (root-level scratch folder, see api/README.md) ──
+api_export/
+
 # ── Generated plots and figures ──
 plots/
 **/*.png

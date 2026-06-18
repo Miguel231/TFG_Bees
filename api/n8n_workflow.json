@@ -1,0 +1,143 @@
+{
+  "name": "Bee Monitor — Weekly Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [1],
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "node_trigger",
+      "name": "Every Monday at 9am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/weekly-run?days=60",
+        "options": {
+          "timeout": 300000,
+          "response": { "response": { "neverError": false } }
+        }
+      },
+      "id": "node_swarm_run",
+      "name": "Swarm — weekly prediction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 200],
+      "notes": "Calls POST /weekly-run: downloads 60d xlsx for 8 swarm hives, runs LSTM, returns JSON. Timeout 5 min."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/weekly-alza-update?days=30",
+        "options": {
+          "timeout": 720000,
+          "response": { "response": { "neverError": false } }
+        }
+      },
+      "id": "node_alza_run",
+      "name": "Alzas — update feature CSV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 400],
+      "notes": "Calls POST /weekly-alza-update: downloads 30d xlsx for all 17 hives, rebuilds daily_features_final.csv. Takes ~7-10 min. Timeout 12 min."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log swarm results\nconst d = $input.first().json;\nconst rows = (d.predictions || []).map(p => {\n  const pct = p.swarm_risk_probability != null ? (p.swarm_risk_probability * 100).toFixed(1) + '%' : (p.error || '?');\n  return `  Hive ${String(p.box_id).padStart(2)}: ${(p.risk_level || 'UNKNOWN').padEnd(10)} ${pct}`;\n}).join('\\n');\nconsole.log(`[SwarmRisk ${d.run_date}] ${d.alert_count} alertas\\n${rows}`);\nreturn $input.all();\n"
+      },
+      "id": "node_swarm_log",
+      "name": "Log swarm results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log alza update\nconst d = $input.first().json;\nconst dates = d.last_date_per_hive || {};\nconst lines = Object.entries(dates).map(([h,dt]) => `  Hive ${h}: ${dt}`).join('\\n');\nconsole.log(`[AlzaUpdate ${d.run_date}] status=${d.status} | rows=${d.total_feat_rows} | elapsed=${d.elapsed_s}s\\nLatest dates per hive:\\n${lines}`);\nreturn $input.all();\n"
+      },
+      "id": "node_alza_log",
+      "name": "Log alza update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond_alerts",
+              "leftValue": "={{ $json.alert_count }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node_filter",
+      "name": "Any HIGH swarm alerts?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [680, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build alert message\nconst d = $input.first().json;\nconst lines = (d.alerts || []).map(a => {\n  const pct = a.swarm_risk_probability != null ? (a.swarm_risk_probability * 100).toFixed(1) + '%' : '';\n  return `COLMENA ${a.box_id}: ${pct} riesgo en los proximos 3 dias`;\n});\nconst message = [\n  `[${d.run_date}] ALERTA ENJAMBRAZON — ${d.alert_count} colmena(s) en riesgo ALTO:`,\n  ...lines,\n  `Total colmenas analizadas: ${(d.hives || []).length}`\n].join('\\n');\nconsole.log(message);\nreturn [{ json: { message, alert_count: d.alert_count, run_date: d.run_date, alerts: d.alerts } }];\n"
+      },
+      "id": "node_alert",
+      "name": "Build alert message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 260]
+    }
+  ],
+  "connections": {
+    "Every Monday at 9am": {
+      "main": [
+        [
+          {"node": "Swarm — weekly prediction",   "type": "main", "index": 0},
+          {"node": "Alzas — update feature CSV", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Swarm — weekly prediction": {
+      "main": [
+        [
+          {"node": "Any HIGH swarm alerts?", "type": "main", "index": 0},
+          {"node": "Log swarm results",      "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Alzas — update feature CSV": {
+      "main": [[{"node": "Log alza update", "type": "main", "index": 0}]]
+    },
+    "Any HIGH swarm alerts?": {
+      "main": [[{"node": "Build alert message", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": ["beehive", "swarm", "alzas", "prediction", "TFG"],
+  "_meta": {
+    "instanceId": "local",
+    "note": "Requires: uvicorn on :8000, playwright installed with chromium. Start API: cd api && python -m uvicorn main:app --port 8000. Start n8n: set N8N_USER_FOLDER=%TEMP%\\n8n_data && n8n start. Alza update timeout=12min."
+  }
+}

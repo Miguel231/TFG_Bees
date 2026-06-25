@@ -1,0 +1,9 @@
+{
+  "seq_len": 21,
+  "n_features": 24,
+  "hidden": 64,
+  "n_layers": 2,
+  "bidirectional": false,
+  "horizon_days": 3,
+  "dropout": 0.3
+}

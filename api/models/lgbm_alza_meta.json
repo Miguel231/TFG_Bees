@@ -1,0 +1,27 @@
+{
+  "file": "lgbm_alza_solo_hive_14d.pkl",
+  "horizon_days": 14,
+  "auc": 0.7244,
+  "features": [
+    "Weight",
+    "weight_diff_7d",
+    "weight_diff_14d",
+    "weight_diff_21d",
+    "weight_ma_7d",
+    "weight_trend_slope",
+    "n_positive_days_7d",
+    "days_since_last_alza",
+    "days_since_last_ADD",
+    "n_alzas_this_season",
+    "weight_vs_historical",
+    "above_min_weight",
+    "overdue_for_alza",
+    "days_in_season",
+    "sin_dayofyear",
+    "cos_dayofyear",
+    "month",
+    "season",
+    "temp_trend_7d"
+  ],
+  "threshold": 0.1404
+}

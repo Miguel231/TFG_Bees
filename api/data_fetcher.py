@@ -1,14 +1,13 @@
 """
 Weekly swarm-risk pipeline:
   1. Opens beehivemonitoring.com with Playwright (share URL auto-auth)
-  2. Clicks Menu -> Export Excel, selects all 8 swarm hives, sets last 60 days
-  3. Downloads the xlsx (one file, all hives at once)
-  4. Reads it and calls FastAPI /predict for each hive
-  5. Prints JSON summary to stdout (n8n reads it)
+  2. Clicks Menu -> Export Excel, selects all 8 swarm hives, sets last N days
+  3. Downloads the xlsx and parses it without openpyxl (handles missing sharedStrings.xml)
+  4. Calls /predict for each hive and prints a JSON summary to stdout (n8n reads it)
 
 Install once:
-    pip install playwright openpyxl requests
-    python -m playwright install chromium
+    pip install -r requirements.txt
+    playwright install chromium
 
 Run:
     python data_fetcher.py [--days 60] [--api http://localhost:8000]
@@ -22,12 +21,17 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import openpyxl
+import os
+import xml.etree.ElementTree as ET
+import zipfile
 import pandas as pd
 import requests
 from playwright.async_api import async_playwright
 
-SHARE_URL = "https://main.beehivemonitoring.com/c36f58c6b327462fa1b23da7f652697d"
+SHARE_URL = os.environ.get(
+    "BEEHIVE_SHARE_URL",
+    "https://main.beehivemonitoring.com/c36f58c6b327462fa1b23da7f652697d",
+)
 
 # Hive name prefixes to select (matching the checkbox labels)
 SWARM_HIVE_PREFIXES = ["001", "002", "003", "004", "005", "008", "013", "014"]
@@ -63,13 +67,13 @@ async def download_excel(days: int = 60) -> bytes:
 
         # --- Set "Date from" (editable text field) ---
         date_from_input = page.locator('input').first
-        await date_from_input.triple_click()
+        await date_from_input.click(click_count=3)
         await date_from_input.fill(date_from)
         await page.keyboard.press("Tab")
 
         # --- Set "Date to" ---
         date_to_input = page.locator('input').nth(1)
-        await date_to_input.triple_click()
+        await date_to_input.click(click_count=3)
         await date_to_input.fill(date_to)
         await page.keyboard.press("Tab")
 
@@ -121,39 +125,85 @@ async def download_excel(days: int = 60) -> bytes:
 
 
 def xlsx_to_df(xlsx_bytes: bytes) -> pd.DataFrame:
-    """Parse the exported xlsx into a DataFrame matching the model's expected format."""
-    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
+    """Parse exported xlsx without openpyxl (handles missing sharedStrings.xml)."""
+    import xml.etree.ElementTree as ET_
+    import zipfile as zipfile_
+    _NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 
-    if not rows:
-        raise ValueError("El xlsx está vacío")
+    def _tag(n): return f"{{{_NS}}}{n}"
 
-    headers = [str(h) if h is not None else "" for h in rows[0]]
-    df = pd.DataFrame(rows[1:], columns=headers)
+    with zipfile_.ZipFile(io.BytesIO(xlsx_bytes)) as z:
+        names = z.namelist()
+        shared: list = []
+        if "xl/sharedStrings.xml" in names:
+            for si in ET_.fromstring(z.read("xl/sharedStrings.xml")).iter(_tag("si")):
+                shared.append("".join(t.text or "" for t in si.iter(_tag("t"))))
+        sheet = next((n for n in sorted(names)
+                      if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")), None)
+        if sheet is None:
+            raise ValueError("No worksheet in xlsx")
+        ws = ET_.fromstring(z.read(sheet))
 
-    # The xlsx already has the exact column names the model expects
+    _EPOCH = pd.Timestamp("1899-12-30")
+
+    def _val(cell):
+        ct = cell.get("t", "")
+        v  = cell.find(_tag("v"))
+        is_ = cell.find(_tag("is"))
+        if ct == "s":
+            return shared[int(v.text)] if v is not None else None
+        if ct == "inlineStr":
+            t = is_.find(_tag("t")) if is_ is not None else None
+            return t.text if t is not None else None
+        if v is None or v.text is None:
+            return None
+        try:
+            num = float(v.text)
+        except ValueError:
+            return v.text
+        if cell.get("s") and 40000 < num < 60000:
+            return (_EPOCH + pd.Timedelta(days=num)).to_pydatetime()
+        return num
+
+    def _col(ref):
+        letters = "".join(c for c in ref if c.isalpha())
+        idx = 0
+        for ch in letters:
+            idx = idx * 26 + (ord(ch.upper()) - ord("A") + 1)
+        return idx - 1
+
+    raw: list = []
+    for row_el in ws.iter(_tag("row")):
+        cells = {}
+        for c in row_el.iter(_tag("c")):
+            if c.get("r"):
+                cells[_col(c.get("r"))] = _val(c)
+        if cells:
+            mx = max(cells)
+            raw.append([cells.get(i) for i in range(mx + 1)])
+
+    if not raw:
+        raise ValueError("El xlsx esta vacio")
+
+    mx_len = max(len(r) for r in raw)
+    for r in raw:
+        r.extend([None] * (mx_len - len(r)))
+
+    headers = [str(h).strip() if h is not None else "" for h in raw[0]]
+    df = pd.DataFrame(raw[1:], columns=headers)
+
     needed = ["Hive name", "Time", "Weight", "Frequency", "Volume",
               "Temperature heart", "Humidity heart", "Temperature scale", "Humidity scale"]
     df = df[[c for c in needed if c in df.columns]].copy()
 
-    # Time strings have NARROW NO-BREAK SPACE before AM/PM: "6/1/2026 10:00:21 AM"
-    # Strip it and use a fixed format for fast C-level parsing
     df["Time"] = pd.to_datetime(
-        df["Time"].astype(str).str.replace(" ", " ", regex=False),
-        format="%m/%d/%Y %I:%M:%S %p",
-        errors="coerce",
+        df["Time"].astype(str).str.replace(chr(8239), " ").str.replace(chr(160), " "),
+        format="%m/%d/%Y %I:%M:%S %p", errors="coerce",
     )
-    # "001 (I*) Blanca" → 1
-    df["Hive name"] = (
-        df["Hive name"].astype(str).str.extract(r"^0*(\d+)")[0].astype(int)
-    )
+    df["Hive name"] = df["Hive name"].astype(str).str.extract(r"^0*(\d+)")[0].astype(int)
     df = df.dropna(subset=["Time"]).sort_values(["Hive name", "Time"]).reset_index(drop=True)
-    # Cap to last 90 days so data size stays bounded even if the export is large
     cutoff = df["Time"].max() - pd.Timedelta(days=90)
-    df = df[df["Time"] >= cutoff].reset_index(drop=True)
-    return df
+    return df[df["Time"] >= cutoff].reset_index(drop=True)
 
 
 def predict_hive(api_url: str, df: pd.DataFrame, box_id: int) -> dict:

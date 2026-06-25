@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import io
 import json
+import os
 import sys
 import zipfile
 from datetime import datetime, timedelta
@@ -33,10 +34,13 @@ if _data_try.exists():
     DATA_DIR = _data_try
 
 RAW_CSV   = DATA_DIR / "12062026all_boxes.csv"
-FEAT_CSV  = HERE.parent.parent / "daily_features_final.csv"
-FEAT_CSV2 = DATA_DIR / "daily_features_final.csv"       # mirror copy in data/
+FEAT_CSV  = HERE.parent.parent / "daily_features_prod.csv"
+FEAT_CSV2 = DATA_DIR / "daily_features_prod.csv"        # mirror copy in data/
 
-SHARE_URL = "https://main.beehivemonitoring.com/c36f58c6b327462fa1b23da7f652697d"
+SHARE_URL = os.environ.get(
+    "BEEHIVE_SHARE_URL",
+    "https://main.beehivemonitoring.com/c36f58c6b327462fa1b23da7f652697d",
+)
 
 # All hive prefixes with registered alza history (same as ALZA_HIVES in dashboard)
 ALZA_HIVE_PREFIXES = [

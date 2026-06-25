@@ -49,12 +49,12 @@
       "name": "Alzas — update feature CSV",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 400],
+      "position": [440, 420],
       "notes": "Calls POST /weekly-alza-update: downloads 30d xlsx for all 17 hives, rebuilds daily_features_final.csv. Takes ~7-10 min. Timeout 12 min."
     },
     {
       "parameters": {
-        "jsCode": "// Log swarm results\nconst d = $input.first().json;\nconst rows = (d.predictions || []).map(p => {\n  const pct = p.swarm_risk_probability != null ? (p.swarm_risk_probability * 100).toFixed(1) + '%' : (p.error || '?');\n  return `  Hive ${String(p.box_id).padStart(2)}: ${(p.risk_level || 'UNKNOWN').padEnd(10)} ${pct}`;\n}).join('\\n');\nconsole.log(`[SwarmRisk ${d.run_date}] ${d.alert_count} alertas\\n${rows}`);\nreturn $input.all();\n"
+        "jsCode": "const d = $input.first().json;\nconst rows = (d.predictions || []).map(p => {\n  const pct = p.swarm_risk_probability != null ? (p.swarm_risk_probability * 100).toFixed(1) + '%' : (p.error || '?');\n  return `  Hive ${String(p.box_id).padStart(2)}: ${(p.risk_level || 'UNKNOWN').padEnd(10)} ${pct}`;\n}).join('\\n');\nconsole.log(`[SwarmRisk ${d.run_date}] ${d.alert_count} alertas\\n${rows}`);\nreturn $input.all();\n"
       },
       "id": "node_swarm_log",
       "name": "Log swarm results",
@@ -64,13 +64,13 @@
     },
     {
       "parameters": {
-        "jsCode": "// Log alza update\nconst d = $input.first().json;\nconst dates = d.last_date_per_hive || {};\nconst lines = Object.entries(dates).map(([h,dt]) => `  Hive ${h}: ${dt}`).join('\\n');\nconsole.log(`[AlzaUpdate ${d.run_date}] status=${d.status} | rows=${d.total_feat_rows} | elapsed=${d.elapsed_s}s\\nLatest dates per hive:\\n${lines}`);\nreturn $input.all();\n"
+        "jsCode": "const d = $input.first().json;\nconst dates = d.last_date_per_hive || {};\nconst lines = Object.entries(dates).map(([h,dt]) => `  Hive ${h}: ${dt}`).join('\\n');\nconsole.log(`[AlzaUpdate ${d.run_date}] status=${d.status} | rows=${d.total_feat_rows} | elapsed=${d.elapsed_s}s\\nLatest dates per hive:\\n${lines}`);\nreturn $input.all();\n"
       },
       "id": "node_alza_log",
       "name": "Log alza update",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 400]
+      "position": [680, 420]
     },
     {
       "parameters": {
@@ -96,20 +96,72 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build alert message\nconst d = $input.first().json;\nconst lines = (d.alerts || []).map(a => {\n  const pct = a.swarm_risk_probability != null ? (a.swarm_risk_probability * 100).toFixed(1) + '%' : '';\n  return `COLMENA ${a.box_id}: ${pct} riesgo en los proximos 3 dias`;\n});\nconst message = [\n  `[${d.run_date}] ALERTA ENJAMBRAZON — ${d.alert_count} colmena(s) en riesgo ALTO:`,\n  ...lines,\n  `Total colmenas analizadas: ${(d.hives || []).length}`\n].join('\\n');\nconsole.log(message);\nreturn [{ json: { message, alert_count: d.alert_count, run_date: d.run_date, alerts: d.alerts } }];\n"
+        "jsCode": "const d = $input.first().json;\nconst lines = (d.alerts || []).map(a => {\n  const pct = a.swarm_risk_probability != null ? (a.swarm_risk_probability * 100).toFixed(1) + '%' : '';\n  return `<li><strong>Colmena ${a.box_id}:</strong> ${pct} de riesgo en los próximos 3 días</li>`;\n});\nconst htmlMessage = `\n<h2 style='color:#c0392b'>⚠️ Alerta de enjambrazón — ${d.run_date}</h2>\n<p>${d.alert_count} colmena(s) en <strong>riesgo ALTO</strong>:</p>\n<ul>${lines.join('')}</ul>\n<p>Total colmenas analizadas: ${(d.hives || []).length}</p>\n<hr/>\n<p style='color:#888;font-size:12px'>Bee Monitor · UAB Apiary · TFG Miguel Arpa</p>\n`;\nconst textMessage = [\n  `[${d.run_date}] ALERTA ENJAMBRAZON — ${d.alert_count} colmena(s) en riesgo ALTO:`,\n  ...(d.alerts || []).map(a => `  Colmena ${a.box_id}: ${a.swarm_risk_probability != null ? (a.swarm_risk_probability*100).toFixed(1)+'%' : '?'}`),\n  `Total colmenas: ${(d.hives||[]).length}`\n].join('\\n');\nconsole.log(textMessage);\nreturn [{ json: { htmlMessage, textMessage, alert_count: d.alert_count, run_date: d.run_date, alerts: d.alerts } }];\n"
       },
       "id": "node_alert",
       "name": "Build alert message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [920, 260]
+    },
+    {
+      "parameters": {
+        "fromEmail": "miguelpitufet@gmail.com",
+        "toEmail": "miguelpitufet@gmail.com",
+        "subject": "=⚠️ [Bee Monitor] ALERTA ENJAMBRAZON — {{ $json.alert_count }} colmena(s) en riesgo ALTO",
+        "emailType": "html",
+        "message": "={{ $json.htmlMessage }}",
+        "options": {}
+      },
+      "id": "node_email_swarm",
+      "name": "Send swarm alert email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1160, 260],
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "Gmail SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst dates = d.last_date_per_hive || {};\nconst dateRows = Object.entries(dates).map(([h,dt]) => `<tr><td style='padding:4px 12px'>Colmena ${h}</td><td style='padding:4px 12px'>${dt}</td></tr>`).join('');\nconst htmlMessage = `\n<h2 style='color:#27ae60'>✅ CSV de alzas actualizado</h2>\n<table border='1' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>\n  <tr><td style='padding:6px 12px'><strong>Fecha</strong></td><td style='padding:6px 12px'>${d.run_date || 'N/A'}</td></tr>\n  <tr><td style='padding:6px 12px'><strong>Estado</strong></td><td style='padding:6px 12px'>${d.status || 'ok'}</td></tr>\n  <tr><td style='padding:6px 12px'><strong>Filas totales</strong></td><td style='padding:6px 12px'>${d.total_feat_rows || 'N/A'}</td></tr>\n  <tr><td style='padding:6px 12px'><strong>Tiempo</strong></td><td style='padding:6px 12px'>${d.elapsed_s ? d.elapsed_s + 's' : 'N/A'}</td></tr>\n</table>\n${dateRows ? `<h3>Última fecha por colmena:</h3><table border='1' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>${dateRows}</table>` : ''}\n<hr/>\n<p style='color:#888;font-size:12px'>Bee Monitor · UAB Apiary · TFG Miguel Arpa</p>\n`;\nreturn [{ json: { htmlMessage, run_date: d.run_date, status: d.status, total_feat_rows: d.total_feat_rows } }];\n"
+      },
+      "id": "node_alza_email_builder",
+      "name": "Build alza email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 420]
+    },
+    {
+      "parameters": {
+        "fromEmail": "miguelpitufet@gmail.com",
+        "toEmail": "miguelpitufet@gmail.com",
+        "subject": "=✅ [Bee Monitor] CSV de alzas actualizado — {{ $json.run_date }}",
+        "emailType": "html",
+        "message": "={{ $json.htmlMessage }}",
+        "options": {}
+      },
+      "id": "node_email_alza",
+      "name": "Send alza update email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1160, 420],
+      "credentials": {
+        "smtp": {
+          "id": "1",
+          "name": "Gmail SMTP"
+        }
+      }
     }
   ],
   "connections": {
     "Every Monday at 9am": {
       "main": [
         [
-          {"node": "Swarm — weekly prediction",   "type": "main", "index": 0},
+          {"node": "Swarm — weekly prediction",  "type": "main", "index": 0},
           {"node": "Alzas — update feature CSV", "type": "main", "index": 0}
         ]
       ]
@@ -127,6 +179,15 @@
     },
     "Any HIGH swarm alerts?": {
       "main": [[{"node": "Build alert message", "type": "main", "index": 0}]]
+    },
+    "Build alert message": {
+      "main": [[{"node": "Send swarm alert email", "type": "main", "index": 0}]]
+    },
+    "Log alza update": {
+      "main": [[{"node": "Build alza email", "type": "main", "index": 0}]]
+    },
+    "Build alza email": {
+      "main": [[{"node": "Send alza update email", "type": "main", "index": 0}]]
     }
   },
   "pinData": {},
@@ -138,6 +199,6 @@
   "tags": ["beehive", "swarm", "alzas", "prediction", "TFG"],
   "_meta": {
     "instanceId": "local",
-    "note": "Requires: uvicorn on :8000, playwright installed with chromium. Start API: cd api && python -m uvicorn main:app --port 8000. Start n8n: set N8N_USER_FOLDER=%TEMP%\\n8n_data && n8n start. Alza update timeout=12min."
+    "note": "Requires: uvicorn on :8000, playwright installed with chromium. Start API: cd api && uvicorn main:app --port 8000. Start n8n: $env:N8N_USER_FOLDER=\"$env:TEMP\\n8n_data\" && n8n start. Gmail credential: Settings > Credentials > Add > SMTP, host=smtp.gmail.com, port=465, user=miguelpitufet@gmail.com, pass=<app-password>."
   }
 }

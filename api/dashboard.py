@@ -86,7 +86,7 @@ RESULTS_FILE = Path(__file__).parent / "latest_results.json"
 HISTORY_FILE = Path(__file__).parent / "run_history.json"
 ALZA_7D      = Path(__file__).parent / "models" / "lgbm_alza_solo_hive_7d.pkl"
 ALZA_14D     = Path(__file__).parent / "models" / "lgbm_alza_solo_hive_14d.pkl"
-FEAT_CSV     = Path(__file__).resolve().parent.parent.parent / "daily_features_final.csv"
+FEAT_CSV     = Path(__file__).resolve().parent.parent.parent / "daily_features_prod.csv"
 
 # Hives with registered alza history — must match the training dict in train_alza_features.py
 _ALZA_DICT = {

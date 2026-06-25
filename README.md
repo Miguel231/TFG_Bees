@@ -22,7 +22,9 @@ This project develops a machine learning system for early prediction of swarming
 - Event-level evaluation (swarms detected vs. false alarms), not just aggregate AUC/AP
 - Exploratory honey super (alza) placement prediction model
 
-**Best result:** LSTM (unidirectional) on `03_swarm_night_enhanced` — **AUC = 0.887, 13/14 test events detected, 218 false alarms.** LSTM architectures outperform XGBoost on every metric in both main model notebooks.
+**Best result (research):** LSTM Uni on `03_swarm_night_enhanced` — **AUC = 0.887, 13/14 test events detected, 218 false alarms.** LSTM architectures outperform XGBoost on every metric in both main model notebooks.
+
+**Deployed system:** NB01 dual-horizon LSTM — 3d G-Mean = 0.866 (13/14, 136 FA) and 14d G-Mean = 0.815 (13/14, 55 FA). NB01 was chosen for production because its 24 daily features are simpler to compute and more robust to sensor downtime than the 44-feature nocturnal set.
 
 ---
 
@@ -48,15 +50,13 @@ TFG_Bees/
 │   ├── data_fetcher.py                        Playwright scraper — swarm hive xlsx download
 │   ├── update_alza_features.py                Weekly alza feature CSV updater
 │   ├── models/                                Serialised model artefacts
-│   │   ├── lstm_uni_03.pt / scaler_03.pkl / feat_a_03.json / ...   Swarm LSTM
-│   │   └── alza_best_7d.pkl / alza_best_14d.pkl / ...              Honey super LightGBM
+│   │   ├── lstm_uni_01_3d.pt / lstm_bi_01_14d.pt / scaler_01.pkl / ...   NB01 swarm LSTM (3d + 14d)
+│   │   └── lgbm_alza_solo_hive_7d.pkl / lgbm_alza_solo_hive_14d.pkl      Honey super XGBoost
 │   ├── n8n_workflow.json                      n8n automation (weekly swarm + alza update, every Monday 9am)
 │   └── static/uab_logo.png
 ├── docs/
 │   └── images/                            # Result figures (extracted from notebook outputs)
-├── data/                                  # NOT in git — symlink or place CSVs here (see below)
-│   └── .gitkeep
-├── plots/                                 # NOT in git — generated at runtime
+├── data/                                  # NOT in git — place CSVs here (see Data Setup below)
 │   └── .gitkeep
 ├── .gitignore
 ├── requirements.txt
@@ -156,13 +156,14 @@ The `api/` folder contains a production-ready prediction system that runs locall
 ```
 n8n (Monday 9am)
   ├── POST /weekly-run          → downloads 60d xlsx for 8 swarm hives via Playwright
-  │                               → runs LSTM → saves latest_results.json
+  │                               → runs LSTM Uni (3d) + LSTM Bi (14d) per hive
+  │                               → saves latest_results.json, emails if any ALTO alert
   └── POST /weekly-alza-update  → downloads 30d xlsx for 17 alza hives
-                                  → rebuilds daily_features_final.csv (~7 min)
+                                  → rebuilds daily_features_prod.csv (~7 min)
 
 FastAPI (port 8000)             Streamlit dashboard (port 8501)
-  ├── /predict                    Tab 1 — Swarm Risk (LSTM probabilities per hive)
-  ├── /weekly-run                 Tab 2 — Honey Supers (LightGBM 7d/14d)
+  ├── /predict                    Tab 1 — Swarm Risk (3d + 14d probabilities per hive)
+  ├── /weekly-run                 Tab 2 — Honey Supers (XGBoost 7d/14d)
   ├── /weekly-alza-update         Tab 3 — Sensor Data (latest readings)
   ├── /results                    Tab 4 — Risk Trends (history plot)
   └── /history                    Tab 5 — Models (CV table + feature importance)
@@ -174,25 +175,27 @@ FastAPI (port 8000)             Streamlit dashboard (port 8501)
 ```bash
 # 1. Start the API
 cd api
-uvicorn main:app --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
 
 # 2. Start the dashboard (separate terminal)
 streamlit run dashboard.py --server.port 8501
 
 # 3. Import n8n_workflow.json into a local n8n instance for weekly automation
+#    (n8n start → http://localhost:5678)
 ```
 
 ### Model artefacts in `api/models/`
 
 | File | Description |
 |---|---|
-| `lstm_uni_03.pt` | Swarm LSTM weights (best model, from `03_swarm_night_enhanced`) |
-| `scaler_03.pkl` | StandardScaler fitted on training split |
-| `feat_a_03.json` | Feature list and exact order |
-| `median_fill_03.json` | Training-split medians for imputation |
-| `model_meta_03.json` | Architecture hyperparameters |
-| `alza_best_7d.pkl` | LightGBM honey super model — 7-day horizon |
-| `alza_best_14d.pkl` | LightGBM honey super model — 14-day horizon |
+| `lstm_uni_01_3d.pt` | Swarm LSTM Uni — 3-day horizon (NB01, G-Mean=0.866, 13/14) |
+| `lstm_bi_01_14d.pt` | Swarm LSTM Bi — 14-day horizon (NB01, G-Mean=0.815, 13/14) |
+| `scaler_01.pkl` | StandardScaler fitted on NB01 training split |
+| `median_fill_01.json` | Training-split medians for NaN imputation |
+| `model_meta_01_3d.json` | Architecture params for 3d model |
+| `model_meta_01_14d.json` | Architecture params for 14d model |
+| `lgbm_alza_solo_hive_7d.pkl` | XGBoost honey super model — 7-day horizon (G-Mean=0.757, 16/20) |
+| `lgbm_alza_solo_hive_14d.pkl` | XGBoost honey super model — 14-day horizon (G-Mean=0.741, 16/20) |
 
 ---
 

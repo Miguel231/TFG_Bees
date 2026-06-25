@@ -37,8 +37,7 @@ TFG_Bees/
 │       ├── 01_swarm_multihorizon.ipynb        XGBoost + LSTM at 3/7/14-day horizons (24 features)
 │       ├── 02_swarm_morning_window.ipynb      Morning-window 10–14h features + weight_std_roll14 (31)
 │       ├── 03_swarm_night_enhanced.ipynb      + nocturnal 00–05h aggregations (44 features)
-│       ├── 04_honey_super.ipynb               Honey super placement (LightGBM/XGBoost, 19–52 features)
-│       └── optuna_nb01.py                     Standalone Optuna search for NB01 LSTM
+│       └── 04_honey_super.ipynb               Honey super placement (LightGBM/XGBoost, 19–52 features)
 ├── api/                                   # Deployed prediction system
 │   ├── main.py                                FastAPI backend (/predict, /weekly-run, /weekly-alza-update)
 │   ├── dashboard.py                           Streamlit dashboard (6 tabs)
